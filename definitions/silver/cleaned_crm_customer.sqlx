@@ -1,0 +1,217 @@
+config {
+  type: "incremental",
+  schema: "silver",
+
+  assertions: {
+
+        nonNull: [
+            "customer_id",
+            "customer_type",
+            "full_name",
+            "gender",
+            "created_at",
+            "updated_at",
+            "preferred_channel",
+            "customer_segment",
+            "customer_tier"
+        ],
+
+        uniqueKey: [
+            "customer_id"
+        ],
+
+        rowConditions: [
+            "full_name <> ''",
+            "customer_type IN ('INDIVIDUAL', 'CORPORATE', 'UNKNOWN')",
+            "gender IN ('MALE', 'FEMALE', 'UNKNOWN')",
+            "preferred_channel IN ('MOBILE', 'BRANCH', 'EMAIL', 'CALL CENTER', 'UNKNOWN')",
+            "customer_segment IN ('MASS', 'AFFLUENT', 'SME', 'ENTERPRISE', 'UNKNOWN')",
+            "customer_tier IN ('SILVER', 'GOLD', 'PLATINUM', 'UNKNOWN')",
+            "updated_at >= created_at",
+            "date_of_birth IS NULL OR date_of_birth <= CURRENT_DATE()"
+        ]
+
+    }
+
+}
+
+
+WITH source AS (
+
+    SELECT 
+        customer_id,
+        customer_type,
+        full_name,
+        date_of_birth,
+        gender,
+        phone_number,
+        email,
+        adress,
+        country,
+        created_at,
+        updated_at,
+        preferred_channel,
+        customer_segment,
+        customer_tier,
+        occupation,
+        income_range
+
+    FROM ${ref("public_customer")}
+
+    ${when(incremental(), `
+        WHERE updated_at >
+        (
+            SELECT COALESCE(MAX(updated_at), TIMESTAMP('1970-01-01'))
+            FROM ${self()}
+        )
+    `)}
+
+),
+
+
+cleaned AS (
+
+    SELECT
+
+
+        -- Surrogate / business key
+        TRIM(customer_id) AS customer_id,
+
+
+        CASE
+
+            WHEN UPPER(TRIM(customer_type)) IN ('INDIVIDUAL')
+                THEN 'INDIVIDUAL'
+
+            WHEN UPPER(TRIM(customer_type)) IN ('CORPORATE')
+                THEN 'CORPORATE'
+
+            ELSE 'UNKNOWN'
+
+        END AS customer_type,
+
+
+
+        -- Customer name
+        TRIM(full_name) AS full_name,
+
+
+        -- Date of birth
+        SAFE_CAST(
+            date_of_birth AS DATE
+        ) AS date_of_birth,
+
+
+        -- Gender standardization
+        CASE
+
+            WHEN UPPER(TRIM(gender)) IN ('M','MALE')
+                THEN 'MALE'
+
+            WHEN UPPER(TRIM(gender)) IN ('F','FEMALE')
+                THEN 'FEMALE'
+
+            ELSE 'UNKNOWN'
+
+        END AS gender,
+
+ 
+
+        -- Contact phone
+        REGEXP_REPLACE(
+            phone_number,
+            r'[^0-9+]',
+            ''
+        ) AS phone_number,
+
+
+        -- Email normalize
+        LOWER(
+            TRIM(email)
+        ) AS email,
+
+
+        -- Address
+        TRIM(adress) AS address,
+
+
+        -- Country
+        TRIM(country) AS country,
+
+
+        SAFE_CAST(
+            created_at AS TIMESTAMP
+        ) AS created_at,
+
+
+        SAFE_CAST(
+            updated_at AS TIMESTAMP
+        ) AS updated_at,
+
+        -- Preferred_channel
+        CASE
+
+            WHEN UPPER(TRIM(preferred_channel))
+                IN ('MOBILE', 'BRANCH', 'EMAIL', 'CALL CENTER')
+
+            THEN UPPER(TRIM(preferred_channel))
+
+            ELSE 'UNKNOWN'
+
+        END AS preferred_channel,
+
+
+        -- customer_segment
+        CASE
+
+            WHEN UPPER(TRIM(customer_segment))
+                IN ('MASS', 'AFFLUENT', 'SME', 'ENTERPRISE')
+
+            THEN UPPER(TRIM(customer_segment))
+
+            ELSE 'UNKNOWN'
+
+        END AS customer_segment,
+
+
+        CASE
+
+            WHEN UPPER(TRIM(customer_tier))
+                IN ('SILVER', 'GOLD', 'PLATINUM')
+
+            THEN UPPER(TRIM(customer_tier))
+
+            ELSE 'UNKNOWN'
+
+        END AS customer_tier,
+
+        TRIM(occupation) as occupation,
+
+        TRIM(income_range) as income_range,
+
+        CURRENT_TIMESTAMP() AS silver_processed_at
+
+
+    FROM source
+
+),
+
+
+deduplicated AS (
+
+    SELECT *
+
+    FROM cleaned
+
+    QUALIFY ROW_NUMBER() OVER(
+        PARTITION BY customer_id
+        ORDER BY updated_at DESC
+    ) = 1
+
+)
+
+
+SELECT
+    *
+
+FROM deduplicated

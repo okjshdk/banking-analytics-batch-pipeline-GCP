@@ -1,0 +1,114 @@
+config {
+  type: "table",
+  schema: "silver",
+
+  assertions: {
+
+    nonNull: [
+        "rm_id",
+        "rm_name",
+        "department",
+        "rm_status",
+        "created_at",
+        "updated_at"
+    ],
+
+    uniqueKey: [
+        "rm_id"
+    ],
+
+    rowConditions: [
+        "rm_name <> ''",
+        "department <> ''",
+        "rm_status IN ('ACTIVE', 'INACTIVE', 'UNKNOWN')",
+        "updated_at >= created_at"
+    ]
+
+}
+}
+
+
+WITH source AS (
+
+    SELECT
+        rm_id,
+
+        rm_name,
+
+        department,
+
+        phone,
+
+        email,
+        
+        status,
+
+        created_at,
+
+        updated_at
+
+    FROM ${ref("public_relationship_manager")}
+
+),
+
+
+cleaned AS (
+
+    SELECT
+
+        TRIM(rm_id) AS rm_id,
+
+        TRIM(rm_name) AS rm_name,
+
+        TRIM(department) AS department,
+
+        REGEXP_REPLACE(
+            phone,
+            r'[^0-9+]',
+            ''
+        ) AS phone,
+
+        LOWER(TRIM(email)) AS email,
+
+        CASE
+
+            WHEN UPPER(TRIM(status)) IN ('ACTIVE', 'INACTIVE')
+
+            THEN UPPER(TRIM(status))
+
+            ELSE 'UNKNOWN'
+
+        END AS rm_status,
+
+        SAFE_CAST(created_at AS TIMESTAMP) AS created_at,
+
+        SAFE_CAST(updated_at AS TIMESTAMP) AS updated_at,
+
+
+        CURRENT_TIMESTAMP() AS silver_processed_at
+
+
+    FROM source
+
+),
+
+
+deduplicated AS (
+
+    SELECT *
+
+    FROM cleaned
+
+    QUALIFY ROW_NUMBER() OVER(
+        PARTITION BY rm_id
+        ORDER BY updated_at DESC
+    ) = 1
+
+)
+
+
+SELECT
+
+    *
+
+FROM deduplicated

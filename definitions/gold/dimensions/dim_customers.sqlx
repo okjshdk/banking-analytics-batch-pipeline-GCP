@@ -1,0 +1,81 @@
+config {
+  type: "incremental",
+  schema: "gold",
+  name: "dim_customer",
+  assertions: {
+
+    nonNull: [
+      "customer_key",
+      "customer_id"
+    ],
+
+    uniqueKey: [
+      "customer_key"
+    ]
+
+},
+
+  bigquery: {
+    clusterBy: [
+    "customer_segment",
+    "customer_tier",
+    "risk_level"
+    ]
+  }
+}
+
+SELECT
+
+    -- Surrogate Key
+    FARM_FINGERPRINT(c.customer_id) AS customer_key,
+
+    -- Business Key
+    c.customer_id,
+
+    -- Customer Information
+    c.full_name,
+    c.customer_type,
+    c.gender,
+    c.date_of_birth,
+
+    c.nationality,
+    c.country,
+
+    c.risk_level,
+    c.kyc_status,
+
+    -- CRM Attributes
+    crm.customer_segment,
+    crm.customer_tier,
+    crm.preferred_channel,
+    crm.occupation,
+    crm.income_range,
+
+    -- Audit Columns
+    c.created_at,
+
+    GREATEST(
+        c.updated_at,
+        COALESCE(crm.updated_at, TIMESTAMP('1970-01-01'))
+    ) AS updated_at,
+
+    CURRENT_TIMESTAMP() AS gold_processed_at
+
+FROM ${ref("cleaned_customers")} c
+
+LEFT JOIN ${ref("cleaned_crm_customer")} crm
+    ON c.customer_id = crm.customer_id
+
+${when(incremental(), `
+WHERE GREATEST(
+        c.updated_at,
+        COALESCE(crm.updated_at, TIMESTAMP('1970-01-01'))
+      ) >
+      (
+          SELECT COALESCE(
+              MAX(updated_at),
+              TIMESTAMP('1970-01-01')
+          )
+          FROM ${self()}
+      )
+`)}

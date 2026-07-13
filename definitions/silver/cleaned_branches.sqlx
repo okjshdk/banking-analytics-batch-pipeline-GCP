@@ -1,0 +1,106 @@
+config {
+  type: "table",
+  schema: "silver",
+
+  assertions: {
+
+    nonNull: [
+        "branch_id",
+        "branch_code",
+        "branch_name",
+        "created_at",
+        "updated_at"
+    ],
+
+    uniqueKey: [
+        "branch_id"
+    ],
+
+    rowConditions: [
+        "branch_code <> ''",
+        "branch_name <> ''",
+        "updated_at >= created_at"
+    ]
+
+    }
+}
+
+
+WITH source AS (
+
+    SELECT
+        branch_id,
+
+        branch_code,
+
+        branch_name,
+
+        address,
+
+        created_at,
+
+        updated_at
+
+    FROM ${ref("public_branches")}
+
+),
+
+
+cleaned AS (
+
+    SELECT
+
+        TRIM(branch_id) AS branch_id,
+
+        TRIM(UPPER(branch_code)) AS branch_code,
+
+        TRIM(branch_name) AS branch_name,
+
+        TRIM(address) AS address,
+
+        SAFE_CAST(created_at AS TIMESTAMP) AS created_at,
+
+        SAFE_CAST(updated_at AS TIMESTAMP) AS updated_at,
+
+
+        CURRENT_TIMESTAMP() AS silver_processed_at
+
+
+    FROM source
+
+),
+
+
+deduplicated AS (
+
+    SELECT *
+
+    FROM cleaned
+
+    QUALIFY ROW_NUMBER() OVER(
+        PARTITION BY branch_id
+        ORDER BY updated_at DESC
+    ) = 1
+
+)
+
+
+SELECT
+
+    branch_id,
+
+    branch_code,
+
+    branch_name,
+
+    address,
+
+
+    created_at,
+
+    updated_at,
+
+    silver_processed_at
+
+
+FROM deduplicated

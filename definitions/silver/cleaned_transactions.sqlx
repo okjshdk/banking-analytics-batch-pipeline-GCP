@@ -1,0 +1,161 @@
+config {
+  type: "incremental",
+  schema: "silver",
+
+    assertions: {
+
+    nonNull: [
+        "transaction_id",
+        "account_id",
+        "transaction_type",
+        "amount",
+        "transaction_datetime",
+        "status"
+    ],
+
+    uniqueKey: [
+        "transaction_id"
+    ],
+
+    rowConditions: [
+        "transaction_type IN ('CREDIT', 'DEBIT', 'UNKNOWN')",
+        "amount >= 0",
+        "status IN ('SUCCESS', 'FAILED', 'PENDING', 'REVERSED', 'UNKNOWN')"
+    ]
+
+    },
+
+  bigquery: {
+    partitionBy: "DATE(transaction_datetime)"
+  }
+}
+
+
+WITH source AS (
+
+    SELECT 
+        transaction_id,
+        account_id,
+        transaction_type,
+        amount,
+        transaction_datetime,
+        description,
+        reference_number,
+        status
+
+    FROM ${ref("public_transactions")}
+
+    ${when(incremental(), `
+        WHERE transaction_datetime >
+        (
+            SELECT COALESCE(MAX(transaction_datetime), TIMESTAMP('1970-01-01'))
+            FROM ${self()}
+        )
+    `)}
+
+),
+
+
+cleaned AS (
+
+    SELECT
+
+
+        -- Primary key
+
+        TRIM(transaction_id) AS transaction_id,
+
+
+
+        -- Foreign key
+
+        TRIM(account_id) AS account_id,
+
+
+
+        -- Transaction type
+
+        CASE
+
+            WHEN UPPER(TRIM(transaction_type))
+                IN (
+                    'CREDIT', 'DEBIT'
+                )
+
+            THEN UPPER(TRIM(transaction_type))
+
+
+            ELSE 'UNKNOWN'
+
+        END AS transaction_type,
+
+
+        -- Amount
+
+        SAFE_CAST(
+            amount AS NUMERIC
+        ) AS amount,
+
+        -- Transaction timestamp
+
+        SAFE_CAST(
+            transaction_datetime AS TIMESTAMP
+        ) AS transaction_datetime,
+
+
+        TRIM(description)
+            AS description,
+
+     
+
+        -- Status
+
+        CASE
+
+            WHEN UPPER(TRIM(status))
+                IN (
+                    'SUCCESS',
+                    'FAILED',
+                    'PENDING',
+                    'REVERSED'
+                )
+
+            THEN UPPER(TRIM(status))
+
+
+            ELSE 'UNKNOWN'
+
+        END AS status,
+
+
+        CURRENT_TIMESTAMP()
+            AS silver_processed_at
+
+
+
+    FROM source
+
+),
+
+
+deduplicated AS (
+
+    SELECT *
+
+
+    FROM cleaned
+
+    QUALIFY ROW_NUMBER() OVER(
+        PARTITION BY transaction_id
+        ORDER BY transaction_datetime DESC
+    ) = 1
+
+)
+
+
+
+SELECT
+    *
+
+
+FROM deduplicated

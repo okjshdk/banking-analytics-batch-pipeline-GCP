@@ -1,0 +1,5 @@
+defaultProject: core-banking-analytics-282
+defaultDataset: bronze
+defaultAssertionDataset: dataform_assertions
+defaultLocation: us-central1
+dataformCoreVersion: 3.0.52

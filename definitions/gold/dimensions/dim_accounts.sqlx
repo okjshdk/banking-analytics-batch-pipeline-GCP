@@ -1,0 +1,72 @@
+config {
+  type: "incremental",
+  schema: "gold",
+  name: "dim_account",
+
+  assertions: {
+
+    nonNull: [
+      "account_key",
+      "account_id"
+    ],
+
+    uniqueKey: [
+      "account_key"
+    ]
+
+  },
+  bigquery: {
+    clusterBy: [
+    "customer_id",
+    "branch_id"
+    ]
+  }
+}
+
+SELECT
+
+    -- Surrogate Key
+    FARM_FINGERPRINT(account_id) AS account_key,
+
+    -- Business Key
+    account_id,
+
+    -- Foreign Keys (business keys)
+    customer_id,
+
+    branch_id,
+
+    -- Account Attributes
+    account_number,
+
+    account_type,
+
+    currency_code,
+
+    opened_date,
+
+    status,
+
+    -- Current Snapshot Measure
+    balance,
+
+    -- Audit Columns
+    created_at,
+
+    updated_at,
+
+    CURRENT_TIMESTAMP() AS gold_processed_at
+
+FROM ${ref("cleaned_accounts")}
+
+${when(incremental(), `
+WHERE updated_at >
+(
+    SELECT COALESCE(
+        MAX(updated_at),
+        TIMESTAMP('1970-01-01')
+    )
+    FROM ${self()}
+)
+`)}
+

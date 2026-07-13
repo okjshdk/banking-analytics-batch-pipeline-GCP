@@ -1,0 +1,123 @@
+config {
+  type: "table",
+  schema: "gold",
+  name: "mart_rm_performance"
+}
+
+WITH relationship_summary AS (
+
+    SELECT
+
+        rm_key,
+
+        COUNT(DISTINCT customer_key) AS customer_count,
+
+        SUM(relationship_count) AS total_relationships,
+
+        SUM(active_relationship_count) AS active_relationships,
+
+        SUM(closed_relationship_count) AS closed_relationships,
+
+        AVG(relationship_duration_days)
+            AS avg_relationship_duration_days
+
+    FROM ${ref("fact_customer_relationship")}
+
+    GROUP BY rm_key
+
+),
+
+interaction_summary AS (
+
+    SELECT
+
+        fcr.rm_key,
+
+        COUNT(*) AS total_interactions,
+
+        SUM(fci.resolved_interaction_count)
+            AS resolved_interactions,
+
+        SUM(fci.pending_interaction_count)
+            AS pending_interactions,
+
+        SUM(fci.escalated_interaction_count)
+            AS escalated_interactions,
+
+        SUM(fci.followup_required_count)
+            AS followup_required_interactions
+
+    FROM ${ref("fact_customer_interaction")} fci
+
+    INNER JOIN ${ref("fact_customer_relationship")} fcr
+        ON fci.customer_key = fcr.customer_key
+
+    GROUP BY fcr.rm_key
+
+)
+
+SELECT
+
+    drm.rm_key,
+
+    drm.rm_id,
+
+    drm.rm_name,
+
+    drm.department,
+
+    drm.rm_status,
+
+    COALESCE(rs.customer_count, 0)
+        AS customer_count,
+
+    COALESCE(rs.total_relationships, 0)
+        AS total_relationships,
+
+    COALESCE(rs.active_relationships, 0)
+        AS active_relationships,
+
+    COALESCE(rs.closed_relationships, 0)
+        AS closed_relationships,
+
+    COALESCE(
+        rs.avg_relationship_duration_days,
+        0
+    ) AS avg_relationship_duration_days,
+
+    COALESCE(isum.total_interactions, 0)
+        AS total_interactions,
+
+    COALESCE(isum.resolved_interactions, 0)
+        AS resolved_interactions,
+
+    COALESCE(isum.pending_interactions, 0)
+        AS pending_interactions,
+
+    COALESCE(isum.escalated_interactions, 0)
+        AS escalated_interactions,
+
+    COALESCE(
+        isum.followup_required_interactions,
+        0
+    ) AS followup_required_interactions,
+
+    SAFE_DIVIDE(
+        COALESCE(rs.active_relationships, 0),
+        NULLIF(COALESCE(rs.total_relationships, 0), 0)
+    ) AS active_relationship_rate,
+
+    SAFE_DIVIDE(
+        COALESCE(isum.resolved_interactions, 0),
+        NULLIF(COALESCE(isum.total_interactions, 0), 0)
+    ) AS interaction_resolution_rate,
+
+    CURRENT_TIMESTAMP() AS gold_processed_at
+
+FROM ${ref("dim_rm")} drm
+
+LEFT JOIN relationship_summary rs
+    ON drm.rm_key = rs.rm_key
+
+LEFT JOIN interaction_summary isum
+    ON drm.rm_key = isum.rm_key

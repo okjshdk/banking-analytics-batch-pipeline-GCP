@@ -1,0 +1,112 @@
+config {
+    type: "incremental",
+    schema: "silver",
+
+    uniqueKey: ['interaction_id'],
+
+    assertions: {
+
+        nonNull: [
+            "interaction_id",
+            "customer_id",
+            "interaction_type",
+            "channel",
+            "result",
+            "created_at"
+        ],
+
+        uniqueKey: [
+            "interaction_id"
+        ],
+
+        rowConditions: [
+            "interaction_type <> ''",
+            "channel IN ('PHONE', 'EMAIL', 'BRANCH', 'MOBILE APP', 'INTERNET BANKING', 'UNKNOWN')",
+            "result IN ('COMPLETED', 'RESOLVED', 'PENDING', 'FOLLOW-UP REQUIRED', 'ESCALATED', 'UNKNOWN')",
+            "interaction_datetime IS NULL OR interaction_datetime <= created_at"
+        ]
+
+    },
+
+
+    bigquery: {
+        partitionBy: "DATE(created_at)"
+    }
+
+}
+
+WITH source AS (
+    SELECT
+        interaction_id,
+        customer_id,
+        interaction_type,
+        channel,
+        interaction_datetime,
+        description,
+        result,
+        created_at
+
+    FROM ${ref("public_customer_interaction")}
+
+    ${when(incremental(), `
+        WHERE created_at >
+        (
+            SELECT COALESCE(MAX(created_at), TIMESTAMP('1970-01-01'))
+            FROM ${self()}
+        )
+    `)}
+),
+
+cleaned AS (
+    SELECT
+        TRIM(interaction_id) AS interaction_id,
+        TRIM(customer_id) AS customer_id,
+
+        UPPER(TRIM(interaction_type)) AS interaction_type,
+
+        CASE
+
+            WHEN UPPER(TRIM(channel)) 
+                IN ('PHONE', 'EMAIL', 'BRANCH', 'MOBILE APP', 'INTERNET BANKING')
+
+            THEN UPPER(TRIM(channel))
+
+            ELSE 'UNKNOWN'
+
+
+        END as channel,
+
+        SAFE_CAST(interaction_datetime AS TIMESTAMP) AS interaction_datetime,
+
+        TRIM(description) AS description,
+
+        CASE
+
+            WHEN UPPER(TRIM(result)) 
+                IN ('COMPLETED', 'RESOLVED', 'PENDING', 'FOLLOW-UP REQUIRED', 'ESCALATED')
+
+            THEN UPPER(TRIM(result))
+
+            ELSE 'UNKNOWN'
+
+
+        END as result,
+
+        SAFE_CAST(created_at AS TIMESTAMP) AS created_at,
+
+        CURRENT_TIMESTAMP() AS silver_processed_at
+
+    FROM source
+),
+
+deduplicated AS (
+    SELECT *
+    FROM cleaned
+    QUALIFY ROW_NUMBER() OVER(
+        PARTITION BY interaction_id
+        ORDER BY created_at DESC
+    ) = 1
+)
+
+SELECT *
+FROM deduplicated

@@ -1,0 +1,98 @@
+config {
+  type: "incremental",
+  schema: "gold",
+  name: "fact_customer_relationship",
+
+    assertions: {
+
+    nonNull: [
+        "relationship_id"
+    ],
+
+    uniqueKey: [
+        "relationship_id"
+    ],
+
+    rowConditions: [
+        "relationship_count = 1",
+        "active_relationship_count IN (0, 1)",
+        "closed_relationship_count IN (0, 1)",
+        "relationship_duration_days >= 0"
+    ]
+
+    },
+
+  bigquery: {
+    clusterBy: [
+    "customer_key",
+    "rm_key"
+    ]
+  }
+}
+
+SELECT
+
+    r.relationship_id,
+    
+    FORMAT_DATE('%Y%m%d', start_date)
+    AS start_date_key,
+
+    FORMAT_DATE('%Y%m%d', end_date)
+        AS end_date_key,
+
+    dc.customer_key,
+
+    drm.rm_key,
+
+    r.relationship_type,
+
+    r.start_date,
+
+    r.end_date,
+
+    r.cr_status,
+
+    1 AS relationship_count,
+
+    CASE
+        WHEN r.cr_status = 'ACTIVE'
+        THEN 1
+        ELSE 0
+    END AS active_relationship_count,
+
+    CASE
+        WHEN r.cr_status = 'CLOSED'
+        THEN 1
+        ELSE 0
+    END AS closed_relationship_count,
+
+    DATE_DIFF(
+        COALESCE(r.end_date, CURRENT_DATE()),
+        r.start_date,
+        DAY
+    ) AS relationship_duration_days,
+
+    r.created_at,
+
+    r.updated_at,
+
+    CURRENT_TIMESTAMP() AS gold_processed_at
+
+FROM ${ref("cleaned_crm_customer_relationship")} r
+
+LEFT JOIN ${ref("dim_customer")} dc
+    ON r.customer_id = dc.customer_id
+
+LEFT JOIN ${ref("dim_rm")} drm
+    ON r.rm_id = drm.rm_id
+
+${when(incremental(), `
+WHERE r.updated_at >
+(
+    SELECT COALESCE(
+        MAX(updated_at),
+        TIMESTAMP('1970-01-01')
+    )
+    FROM ${self()}
+)
+`)}
