@@ -1,0 +1,160 @@
+config {
+  type: "table",
+  schema: "gold",
+  name: "mart_customer_360"
+}
+
+WITH transaction_summary AS (
+
+    SELECT
+
+        customer_key,
+
+        COUNT(*) AS total_transactions,
+
+        SUM(amount) AS total_transaction_amount,
+
+        SUM(credit_amount) AS total_credit_amount,
+
+        SUM(debit_amount) AS total_debit_amount,
+
+        MAX(transaction_datetime) AS last_transaction_datetime
+
+    FROM ${ref("fact_transaction")}
+
+    GROUP BY customer_key
+
+),
+
+interaction_summary AS (
+
+    SELECT
+
+        customer_key,
+
+        COUNT(*) AS total_interactions,
+
+        SUM(resolved_interaction_count) AS resolved_interactions,
+
+        SUM(escalated_interaction_count) AS escalated_interactions,
+
+        SUM(followup_required_count) AS followup_required_interactions,
+
+        MAX(interaction_datetime) AS last_interaction_datetime
+
+    FROM ${ref("fact_customer_interaction")}
+
+    GROUP BY customer_key
+
+),
+
+relationship_summary AS (
+
+    SELECT
+
+        customer_key,
+
+        COUNT(*) AS total_relationships,
+
+        SUM(active_relationship_count) AS active_relationships,
+
+        AVG(relationship_duration_days) AS avg_relationship_duration_days
+
+    FROM ${ref("fact_customer_relationship")}
+
+    GROUP BY customer_key
+
+),
+
+account_summary AS (
+
+    SELECT
+
+        dc.customer_key,
+
+        COUNT(DISTINCT da.account_key) AS total_accounts,
+
+        SUM(da.balance) AS total_balance
+
+    FROM ${ref("dim_account")} da
+
+    INNER JOIN ${ref("dim_customer")} dc
+        ON da.customer_id = dc.customer_id
+
+    GROUP BY dc.customer_key
+
+)
+
+SELECT
+
+    dc.customer_key,
+
+    dc.customer_id,
+
+    dc.full_name,
+
+    dc.gender,
+
+    dc.customer_type,
+
+    dc.customer_segment,
+
+    dc.customer_tier,
+
+    dc.risk_level,
+
+    dc.kyc_status,
+
+    dc.country,
+
+    dc.preferred_channel,
+
+    dc.occupation,
+
+    dc.income_range,
+
+    acc.total_accounts,
+
+    acc.total_balance,
+
+    txn.total_transactions,
+
+    txn.total_transaction_amount,
+
+    txn.total_credit_amount,
+
+    txn.total_debit_amount,
+
+    txn.last_transaction_datetime,
+
+    inter.total_interactions,
+
+    inter.resolved_interactions,
+
+    inter.escalated_interactions,
+
+    inter.followup_required_interactions,
+
+    inter.last_interaction_datetime,
+
+    rel.total_relationships,
+
+    rel.active_relationships,
+
+    rel.avg_relationship_duration_days,
+
+    CURRENT_TIMESTAMP() AS gold_processed_at
+
+FROM ${ref("dim_customer")} dc
+
+LEFT JOIN account_summary acc
+    ON dc.customer_key = acc.customer_key
+
+LEFT JOIN transaction_summary txn
+    ON dc.customer_key = txn.customer_key
+
+LEFT JOIN interaction_summary inter
+    ON dc.customer_key = inter.customer_key
+
+LEFT JOIN relationship_summary rel
+    ON dc.customer_key = rel.customer_key

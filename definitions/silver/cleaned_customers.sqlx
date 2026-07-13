@@ -1,0 +1,240 @@
+config {
+  type: "incremental",
+  schema: "silver",
+
+    assertions: {
+
+    nonNull: [
+        "customer_id",
+        "customer_type",
+        "full_name",
+        "gender",
+        "status",
+        "risk_level",
+        "kyc_status",
+        "created_at",
+        "updated_at"
+    ],
+
+    uniqueKey: [
+        "customer_id"
+    ],
+
+    rowConditions: [
+        "full_name <> ''",
+        "customer_type IN ('INDIVIDUAL', 'CORPORATE', 'UNKNOWN')",
+        "gender IN ('MALE', 'FEMALE', 'UNKNOWN')",
+        "status IN ('ACTIVE', 'INACTIVE', 'BLOCKED', 'CLOSED', 'UNKNOWN')",
+        "risk_level IN ('LOW', 'MEDIUM', 'HIGH', 'UNKNOWN')",
+        "kyc_status IN ('PENDING', 'VERIFIED', 'REJECTED', 'UNKNOWN')",
+        "updated_at >= created_at",
+        "date_of_birth IS NULL OR date_of_birth <= CURRENT_DATE()",
+        "id_issue_date IS NULL OR id_expiry_date IS NULL OR id_issue_date <= id_expiry_date",
+        "email IS NULL OR email = '' OR REGEXP_CONTAINS(email, r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$')"
+    ]
+
+    }
+
+
+}
+
+
+WITH source AS (
+
+    SELECT 
+        customer_id,
+        customer_type,
+        full_name,
+        date_of_birth,
+        gender,
+        nationality,
+        id_number,
+        id_issue_date,
+        id_expiry_date,
+        phone_number,
+        email,
+        adress,
+        country,
+        customer_status,
+        risk_level,
+        kyc_status,
+        created_at,
+        updated_at
+
+    FROM ${ref("public_customers")}
+
+    ${when(incremental(), `
+        WHERE updated_at >
+        (
+            SELECT COALESCE(MAX(updated_at), TIMESTAMP('1970-01-01'))
+            FROM ${self()}
+        )
+    `)}
+
+),
+
+
+cleaned AS (
+
+    SELECT
+
+
+        -- Surrogate / business key
+        TRIM(customer_id) AS customer_id,
+
+
+        CASE
+
+            WHEN UPPER(TRIM(customer_type)) IN ('INDIVIDUAL')
+                THEN 'INDIVIDUAL'
+
+            WHEN UPPER(TRIM(customer_type)) IN ('CORPORATE')
+                THEN 'CORPORATE'
+
+            ELSE 'UNKNOWN'
+
+        END AS customer_type,
+
+
+
+        -- Customer name
+        TRIM(full_name) AS full_name,
+
+
+        -- Date of birth
+        SAFE_CAST(
+            date_of_birth AS DATE
+        ) AS date_of_birth,
+
+
+        -- Gender standardization
+        CASE
+
+            WHEN UPPER(TRIM(gender)) IN ('M','MALE')
+                THEN 'MALE'
+
+            WHEN UPPER(TRIM(gender)) IN ('F','FEMALE')
+                THEN 'FEMALE'
+
+            ELSE 'UNKNOWN'
+
+        END AS gender,
+
+        -- Nationality
+        TRIM(nationality) as nationality,
+
+
+        -- id identity
+        REGEXP_REPLACE(
+            SAFE_CAST(id_number AS STRING),
+            r'[^0-9+]',
+            ''
+        ) AS id_number,
+
+
+        -- Registration date
+        SAFE_CAST(
+            id_issue_date AS DATE
+        ) AS id_issue_date,
+
+
+        SAFE_CAST(
+            id_expiry_date AS DATE
+        ) AS id_expiry_date,
+
+
+        -- Contact phone
+        REGEXP_REPLACE(
+            phone_number,
+            r'[^0-9+]',
+            ''
+        ) AS phone_number,
+
+
+        -- Email normalize
+        LOWER(
+            TRIM(email)
+        ) AS email,
+
+
+        -- Address
+        TRIM(adress) AS address,
+
+
+        -- Country
+        TRIM(country) AS country,
+
+        -- Status
+        CASE
+
+            WHEN UPPER(TRIM(customer_status))
+                IN ('ACTIVE','INACTIVE', 'BLOCKED', 'CLOSED')
+
+            THEN UPPER(TRIM(customer_status))
+
+            ELSE 'UNKNOWN'
+
+        END AS status,
+
+
+        -- Risk level
+        CASE
+
+            WHEN UPPER(TRIM(risk_level))
+                IN ('LOW','MEDIUM','HIGH')
+
+            THEN UPPER(TRIM(risk_level))
+
+            ELSE 'UNKNOWN'
+
+        END AS risk_level,
+
+
+        CASE
+
+            WHEN UPPER(TRIM(kyc_status))
+                IN ('PENDING','VERIFIED','REJECTED')
+
+            THEN UPPER(TRIM(kyc_status))
+
+            ELSE 'UNKNOWN'
+
+        END AS kyc_status,
+
+
+        SAFE_CAST(
+            created_at AS TIMESTAMP
+        ) AS created_at,
+
+
+        SAFE_CAST(
+            updated_at AS TIMESTAMP
+        ) AS updated_at,
+
+
+        CURRENT_TIMESTAMP() AS silver_processed_at
+
+
+    FROM source
+
+),
+
+
+deduplicated AS (
+
+    SELECT *
+
+    FROM cleaned
+
+    QUALIFY ROW_NUMBER() OVER(
+        PARTITION BY customer_id
+        ORDER BY updated_at DESC
+    ) = 1
+
+)
+
+
+SELECT
+    *
+
+FROM deduplicated

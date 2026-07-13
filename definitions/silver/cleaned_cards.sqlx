@@ -1,0 +1,198 @@
+config {
+  type: "incremental",
+  schema: "silver",
+
+  assertions: {
+
+    nonNull: [
+        "card_id",
+        "account_id",
+        "card_number",
+        "card_type",
+        "status",
+        "created_at",
+        "updated_at"
+    ],
+
+    uniqueKey: [
+        "card_id"
+    ],
+
+    rowConditions: [
+        "card_number <> ''",
+        "card_type IN ('DEBIT','CREDIT','UNKNOWN')",
+        "status IN ('ACTIVE','BLOCKED','EXPIRED','CLOSED','UNKNOWN')",
+        "updated_at >= created_at",
+        "issue_date IS NULL OR expire_date IS NULL OR issue_date <= expire_date"
+    ]
+
+    }
+
+
+}
+
+
+WITH source AS (
+
+    SELECT 
+        
+        card_id,
+
+        account_id,
+        
+        card_number,
+
+        card_type,
+
+        issue_date,
+
+        expiry_date as expire_date,
+
+        status,
+
+        created_at,
+
+        updated_at
+
+    FROM ${ref("public_cards")}
+
+    ${when(incremental(), `
+        WHERE updated_at >
+        (
+            SELECT COALESCE(MAX(updated_at), TIMESTAMP('1970-01-01'))
+            FROM ${self()}
+        )
+    `)}
+
+),
+
+
+cleaned AS (
+
+    SELECT
+
+        -- Primary key
+
+        TRIM(card_id) AS card_id,
+
+
+        -- Foreign key
+
+        TRIM(account_id) AS account_id,
+
+        -- Card number
+
+        TRIM(
+            SAFE_CAST(card_number AS STRING)
+        ) AS card_number,
+
+
+        -- Card type normalization
+
+        CASE
+
+            WHEN UPPER(TRIM(card_type))
+                IN ('DEBIT','CREDIT')
+
+            THEN UPPER(TRIM(card_type))
+
+
+            ELSE 'UNKNOWN'
+
+        END AS card_type,
+
+        -- Dates
+
+        SAFE_CAST(
+            issue_date AS DATE
+        ) AS issue_date,
+
+
+        SAFE_CAST(
+            expire_date AS DATE
+        ) AS expire_date,
+
+
+        -- Status
+
+        CASE
+
+            WHEN UPPER(TRIM(status))
+                IN (
+                    'ACTIVE',
+                    'BLOCKED',
+                    'EXPIRED',
+                    'CLOSED'
+                )
+
+            THEN UPPER(TRIM(status))
+
+
+            ELSE 'UNKNOWN'
+
+        END AS status,
+
+
+
+        SAFE_CAST(
+            created_at AS TIMESTAMP
+        ) AS created_at,
+
+
+        SAFE_CAST(
+            updated_at AS TIMESTAMP
+        ) AS updated_at,
+
+
+
+        CURRENT_TIMESTAMP()
+            AS silver_processed_at
+
+
+
+    FROM source
+
+
+),
+
+
+deduplicated AS (
+
+    SELECT *
+
+    FROM cleaned
+
+    QUALIFY ROW_NUMBER() OVER(
+        PARTITION BY card_id
+        ORDER BY updated_at DESC
+    ) = 1
+
+)
+
+
+
+SELECT
+
+
+    card_id,   
+
+    account_id,
+
+    card_number,
+
+    card_type,
+
+    issue_date,
+
+    expire_date,
+
+    status,
+
+    created_at,
+
+    updated_at,
+
+    silver_processed_at
+
+
+FROM deduplicated

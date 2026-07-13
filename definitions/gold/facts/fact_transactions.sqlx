@@ -1,0 +1,124 @@
+config {
+  type: "incremental",
+  schema: "gold",
+  name: "fact_transaction",
+
+    assertions: {
+
+    nonNull: [
+        "transaction_id"
+    ],
+
+    uniqueKey: [
+        "transaction_id"
+    ],
+
+    rowConditions: [
+        "amount >= 0",
+        "credit_amount >= 0",
+        "debit_amount >= 0",
+        "transaction_count = 1",
+        "successful_transaction_count IN (0, 1)",
+        "failed_transaction_count IN (0, 1)",
+        "reversed_transaction_count IN (0, 1)"
+    ]
+
+    },
+
+  bigquery: {
+    partitionBy: "DATE(transaction_datetime)",
+    clusterBy: [
+    "account_key",
+    "customer_key",
+    "branch_key"
+    ]
+  }
+}
+
+SELECT
+
+    -- Business Key
+    t.transaction_id,
+
+    FORMAT_TIMESTAMP(
+    '%Y%m%d',
+        t.transaction_datetime
+    ) AS transaction_date_key,
+
+    -- Dimension Keys
+    da.account_key,
+
+    dc.customer_key,
+
+    db.branch_key,
+
+    -- Transaction Attributes
+    t.transaction_type,
+
+    t.status,
+
+    t.transaction_datetime,
+
+    t.description,
+
+    -- Measures
+    t.amount,
+
+    CASE
+        WHEN t.transaction_type = 'CREDIT'
+        THEN t.amount
+        ELSE 0
+    END AS credit_amount,
+
+    CASE
+        WHEN t.transaction_type = 'DEBIT'
+        THEN t.amount
+        ELSE 0
+    END AS debit_amount,
+
+    1 AS transaction_count,
+
+    CASE
+        WHEN t.status = 'SUCCESS'
+        THEN 1
+        ELSE 0
+    END AS successful_transaction_count,
+
+    CASE
+        WHEN t.status = 'FAILED'
+        THEN 1
+        ELSE 0
+    END AS failed_transaction_count,
+
+    CASE
+        WHEN t.status = 'REVERSED'
+        THEN 1
+        ELSE 0
+    END AS reversed_transaction_count,
+
+    -- Audit Columns
+    t.silver_processed_at,
+
+    CURRENT_TIMESTAMP() AS gold_processed_at
+
+FROM ${ref("cleaned_transactions")} t
+
+LEFT JOIN ${ref("dim_account")} da
+    ON t.account_id = da.account_id
+
+LEFT JOIN ${ref("dim_customer")} dc
+    ON da.customer_id = dc.customer_id
+
+LEFT JOIN ${ref("dim_branches")} db
+    ON da.branch_id = db.branch_id
+
+${when(incremental(), `
+WHERE t.transaction_datetime >
+(
+    SELECT COALESCE(
+        MAX(transaction_datetime),
+        TIMESTAMP('1970-01-01')
+    )
+    FROM ${self()}
+)
+`)}

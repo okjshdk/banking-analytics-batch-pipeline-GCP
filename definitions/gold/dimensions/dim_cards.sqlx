@@ -1,0 +1,84 @@
+config {
+  type: "incremental",
+  schema: "gold",
+  name: "dim_cards",
+
+    assertions: {
+
+        nonNull: [
+            "card_key",
+            "card_id"
+        ],
+
+        uniqueKey: [
+            "card_key",
+            "card_id"
+        ],
+
+        rowConditions: [
+            "card_validity_days IS NULL OR card_validity_days >= 0"
+        ]
+
+    },
+
+  bigquery: {
+    clusterBy: ["account_id", "card_type"]
+  }
+}
+
+SELECT
+
+    -- Surrogate Key
+    FARM_FINGERPRINT(card_id) AS card_key,
+
+    -- Business Key
+    card_id,
+
+    account_id,
+
+    card_number,
+
+    card_type,
+
+    issue_date,
+
+    expire_date,
+
+    CASE
+        WHEN expire_date < CURRENT_DATE()
+            THEN TRUE
+        ELSE FALSE
+    END AS is_expired,
+
+    DATE_DIFF(
+        expire_date,
+        issue_date,
+        DAY
+    ) AS card_validity_days,
+
+    DATE_DIFF(
+        expire_date,
+        CURRENT_DATE(),
+        DAY
+    ) AS days_to_expiry,
+
+    status,
+
+    created_at,
+
+    updated_at,
+
+    CURRENT_TIMESTAMP() AS gold_processed_at
+
+FROM ${ref("cleaned_cards")}
+
+${when(incremental(), `
+WHERE updated_at >
+(
+    SELECT COALESCE(
+        MAX(updated_at),
+        TIMESTAMP('1970-01-01')
+    )
+    FROM ${self()}
+)
+`)}

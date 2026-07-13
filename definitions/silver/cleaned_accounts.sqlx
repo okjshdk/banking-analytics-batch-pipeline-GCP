@@ -1,0 +1,186 @@
+config {
+  type: "incremental",
+  schema: "silver",
+
+  assertions: {
+
+    nonNull: [
+        "account_id",
+        "customer_id",
+        "branch_id",
+        "account_number",
+        "account_type",
+        "currency_code",
+        "status",
+        "created_at",
+        "updated_at"
+    ],
+
+    uniqueKey: [
+        "account_id"
+    ],
+
+    rowConditions: [
+        "balance >= 0",
+
+        "status IN ('ACTIVE','CLOSED','BLOCKED','UNKNOWN')",
+
+        "account_type <> ''",
+
+        "currency_code <> ''",
+  
+        "account_number <> ''",
+
+        "updated_at >= created_at",
+
+        "opened_date IS NULL OR opened_date <= DATE(created_at)"
+
+    ]
+    }
+
+}
+
+
+WITH source AS (
+
+    SELECT
+        account_id,
+        customer_id,
+        branch_id,
+        account_number,
+        account_type,
+        currency,
+        current_balance,
+        status,
+        opened_date,
+        created_at,
+        updated_at
+
+    FROM ${ref("public_accounts")}
+
+    ${when(incremental(), `
+        WHERE updated_at >
+        (
+            SELECT COALESCE(MAX(updated_at), TIMESTAMP('1970-01-01'))
+            FROM ${self()}
+        )
+    `)}
+),
+
+
+cleaned AS (
+
+    SELECT
+
+
+        -- Primary key
+        TRIM(account_id) AS account_id,
+
+
+        -- Foreign keys
+
+        TRIM(customer_id) AS customer_id,
+
+
+        TRIM(branch_id) AS branch_id,
+
+
+        -- Account number
+        TRIM(
+            SAFE_CAST(account_number AS STRING)
+        ) AS account_number,
+
+        -- Account type standardization
+
+        TRIM(UPPER(account_type)) AS account_type,
+
+
+        -- Currency
+
+         TRIM(UPPER(currency))AS currency_code,
+
+
+        -- Balance
+
+        SAFE_CAST(
+            current_balance AS NUMERIC
+        ) AS balance,
+
+
+        -- Status
+
+        CASE
+
+            WHEN UPPER(TRIM(status))
+                IN ('ACTIVE','CLOSED','BLOCKED')
+
+            THEN UPPER(TRIM(status))
+
+
+            ELSE 'UNKNOWN'
+
+        END AS status,
+
+
+        -- Open date
+
+        SAFE_CAST(
+            opened_date AS DATE
+        ) AS opened_date,
+
+
+
+        SAFE_CAST(
+            created_at AS TIMESTAMP
+        ) AS created_at,
+
+
+        SAFE_CAST(
+            updated_at AS TIMESTAMP
+        ) AS updated_at,
+
+
+        CURRENT_TIMESTAMP()
+            AS silver_processed_at
+
+
+
+    FROM source
+
+
+),
+
+
+deduplicated AS (
+
+    SELECT *
+    FROM cleaned
+
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY account_id
+        ORDER BY updated_at DESC
+    ) = 1
+
+)
+
+
+
+SELECT
+
+
+    account_id,
+    customer_id,
+    branch_id,
+    account_number,
+    account_type,
+    currency_code,
+    balance,
+    status,
+    opened_date,
+    created_at,
+    updated_at,
+
+    silver_processed_at
+
+
+FROM deduplicated

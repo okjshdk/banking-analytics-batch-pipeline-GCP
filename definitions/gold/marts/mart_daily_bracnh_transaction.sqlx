@@ -1,0 +1,144 @@
+config {
+  type: "incremental",
+  schema: "gold",
+  name: "mart_daily_branch_transaction",
+
+  uniqueKey: ["date_key", "branch_key"],
+
+  bigquery: {
+    partitionBy: "transaction_date",
+    clusterBy: ["branch_key"]
+  }
+}
+
+
+WITH source AS (
+
+    SELECT
+
+        PARSE_DATE(
+            '%Y%m%d',
+            CAST(transaction_date_key AS STRING)
+        ) AS transaction_date,
+
+        transaction_date_key AS date_key,
+
+        branch_key,
+
+        amount,
+
+        credit_amount,
+
+        debit_amount,
+
+        successful_transaction_count,
+
+        failed_transaction_count,
+
+        reversed_transaction_count,
+
+        customer_key,
+
+        account_key,
+
+        transaction_datetime
+
+
+    FROM ${ref("fact_transaction")}
+
+
+    ${when(incremental(), `
+
+        WHERE transaction_datetime >=
+
+        (
+            SELECT TIMESTAMP_SUB(
+                COALESCE(
+                    MAX(last_transaction_datetime),
+                    TIMESTAMP('1970-01-01')
+                ),
+                INTERVAL 120 MINUTE
+            )
+
+            FROM ${self()}
+
+        )
+
+    `)}
+
+),
+
+
+aggregated AS (
+
+    SELECT
+
+
+        transaction_date,
+
+        date_key,
+
+        branch_key,
+
+
+        COUNT(*) AS transaction_count,
+
+
+        SUM(amount) AS total_transaction_amount,
+
+
+        SUM(credit_amount) AS total_credit_amount,
+
+
+        SUM(debit_amount) AS total_debit_amount,
+
+
+        SUM(successful_transaction_count)
+            AS successful_transaction_count,
+
+
+        SUM(failed_transaction_count)
+            AS failed_transaction_count,
+
+
+        SUM(reversed_transaction_count)
+            AS reversed_transaction_count,
+
+
+        COUNT(DISTINCT customer_key)
+            AS active_customer_count,
+
+
+        COUNT(DISTINCT account_key)
+            AS active_account_count,
+
+
+        AVG(amount)
+            AS avg_transaction_amount,
+
+
+        MAX(transaction_datetime)
+            AS last_transaction_datetime,
+
+
+        CURRENT_TIMESTAMP()
+            AS gold_processed_at
+
+
+    FROM source
+
+
+    GROUP BY
+
+        transaction_date,
+
+        date_key,
+
+        branch_key
+
+)
+
+
+SELECT *
+
+FROM aggregated

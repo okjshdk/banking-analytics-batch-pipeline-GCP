@@ -1,0 +1,36 @@
+config {
+  type: "table",
+  schema: "gold",
+  name: "dim_branches",
+
+  assertions: {
+    nonNull: ["branch_key", "branch_id"],
+    uniqueKey: ["branch_key"]
+  }
+    
+
+}
+
+SELECT
+
+    -- Surrogate Key
+    FARM_FINGERPRINT(branch_id) AS branch_key,
+
+    -- Business Key
+    branch_id,
+
+    branch_code,
+
+    branch_name,
+
+    address
+
+    status,
+
+    created_at,
+
+    updated_at,
+
+    CURRENT_TIMESTAMP() AS gold_processed_at
+
+FROM ${ref("cleaned_branches")}

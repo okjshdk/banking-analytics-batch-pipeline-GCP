@@ -1,0 +1,44 @@
+config {
+  type: "table",
+  schema: "gold",
+  name: "dim_rm",
+
+  assertions: {
+
+    nonNull: [
+      "rm_key",
+      "rm_id"
+    ],
+
+    uniqueKey: [
+      "rm_key"
+    ]
+
+  }
+}
+
+SELECT
+
+    -- Surrogate Key
+    FARM_FINGERPRINT(rm_id) AS rm_key,
+
+    -- Business Key
+    rm_id,
+
+    rm_name,
+
+    department,
+
+    phone,
+
+    email,
+
+    rm_status,
+
+    created_at,
+
+    updated_at,
+
+    CURRENT_TIMESTAMP() AS gold_processed_at
+
+FROM ${ref("cleaned_crm_relationship_manager")}
