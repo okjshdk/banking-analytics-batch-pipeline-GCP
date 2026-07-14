@@ -7,13 +7,13 @@
   
 ## 2. Điểm nổi bật
 
-- Thiết kế kiến trúc batch pipeline theo mô hình Bronze - Silver - Gold.
-- Sử dụng Datastream để CDC theo thời gian thực từ source sang Bigquery.
-- Xây dựng quy trình xử lý dữ liệu và đặt lịch chạy tự động trên Bigquery bằng Dataform.
-- Thiết kế 3 bảng Fact và 6 bảng Dim theo mô hình Star schema.
-- Xây dựng cơ chế nạp dữ liệu tăng dần, tối ưu truy vấn SQL, kiểm tra chất lượng dữ liệu trên Dataform.
-- Xử lý khoảng 10 triệu record mỗi ngày.
-- Tự động refresh 3 dashboard trên Data Studio.
+- Thiết kế kiến trúc data pipeline theo mô hình Bronze – Silver – Gold trên Google Cloud Platform.
+- Sử dụng Datastream để triển khai cơ chế CDC (Change Data Capture) đồng bộ dữ liệu gần thời gian thực từ source vào BigQuery.
+- Xây dựng quy trình ELT workflow và tự động hóa lịch chạy bằng Dataform trên BigQuery.
+- Thiết kế 3 Fact tables và 6 Dimension tables theo mô hình Star Schema.
+- Xây dựng cơ chế incremental loading, tối ưu truy vấn SQL và triển khai kiểm tra chất lượng dữ liệu bằng Dataform assertions.
+- Xử lý khoảng 10 triệu bản ghi/ngày và tối ưu hiệu suất pipeline.
+- Tự động cập nhật dữ liệu cho 3 dashboard trên Looker Studio.
 
 
 
