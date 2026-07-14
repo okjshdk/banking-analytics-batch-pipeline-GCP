@@ -18,7 +18,7 @@
 
 
 ## 3. Kiến trúc hệ thống
-<img width="1636" height="654" alt="system-architecture" src="https://github.com/okjshdk/telecom-network-monitoring/blob/main/architecture.png" />
+<img width="1636" height="654" alt="system-architecture" src="architecture-banking-analytics-gcp.png" />
 
 
 
